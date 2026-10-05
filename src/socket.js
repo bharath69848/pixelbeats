@@ -1,7 +1,8 @@
 import { io } from 'socket.io-client';
 
-const socket = io(import.meta.env.VITE_SOCKET_URL, {
+const socket = io('https://pixelbeats-m51j.onrender.com', {
   transports: ['websocket', 'polling'],
+
   reconnection: true,
   reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
