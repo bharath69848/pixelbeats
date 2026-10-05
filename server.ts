@@ -1,11 +1,6 @@
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 interface Passenger {
   id: string;
@@ -49,7 +44,13 @@ const DEVICE_NAMES = [
   'Sennheiser Momentum 4',
 ];
 
-const SEAT_NAMES = ['Transit seat 4B', 'Seat 02A', 'Window seat 12', 'Express seat 08', 'Upper deck 15'];
+const SEAT_NAMES = [
+  'Transit seat 4B',
+  'Seat 02A',
+  'Window seat 12',
+  'Express seat 08',
+  'Upper deck 15',
+];
 
 function generateBusRoomCode(): string {
   const num = Math.floor(1000 + Math.random() * 9000);
@@ -58,45 +59,72 @@ function generateBusRoomCode(): string {
 
 async function startServer() {
   const app = express();
+
+  // Render provides PORT through environment variables
   const PORT = Number(process.env.PORT) || 3000;
+
   const server = http.createServer(app);
 
   const io = new Server(server, {
-    cors: { origin: '*', methods: ['GET', 'POST'] },
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST'],
+    },
   });
 
   app.use(express.json());
 
-  // Backend Health Check
+  // Backend health check
+  app.get('/', (_req, res) => {
+    res.json({
+      message: 'PixelBeats backend is running',
+    });
+  });
+
   app.get('/api/health', (_req, res) => {
     res.json({
-      message: 'BusBuds server is running',
+      message: 'PixelBeats server is running',
       activeRooms: rooms.size,
       totalConnected: io.engine.clientsCount,
     });
   });
 
-  // Socket.IO Multiplayer Bus Cabin logic
+  // =========================================================
+  // SOCKET.IO MULTIPLAYER LOGIC
+  // =========================================================
+
   io.on('connection', (socket) => {
     console.log(`[Socket.IO] Connected: ${socket.id}`);
 
     const handleLeave = () => {
       const code = socket.data.roomCode;
-      if (!code || !rooms.has(code)) return;
+
+      if (!code || !rooms.has(code)) {
+        return;
+      }
 
       const room = rooms.get(code)!;
       const leavingName = socket.data.username || 'Passenger';
 
-      room.users = room.users.filter((u) => u.id !== socket.id);
+      room.users = room.users.filter(
+        (user) => user.id !== socket.id
+      );
+
       socket.leave(code);
       socket.data.roomCode = null;
 
       if (room.users.length === 0) {
         rooms.delete(code);
-        console.log(`[Socket.IO] Cabin ${code} closed (empty)`);
+
+        console.log(
+          `[Socket.IO] Cabin ${code} closed (empty)`
+        );
       } else {
-        // If host left, assign new host
-        if (room.hostId === socket.id && room.users.length > 0) {
+        // If host left, assign a new host
+        if (
+          room.hostId === socket.id &&
+          room.users.length > 0
+        ) {
           room.hostId = room.users[0].id;
           room.users[0].role = 'HOST DJ';
         }
@@ -114,252 +142,420 @@ async function startServer() {
       }
     };
 
-    // 1. Create Room (Host)
-    socket.on('create-room', (data: { username?: string; device?: string }) => {
-      if (socket.data.roomCode) handleLeave();
+    // =========================================================
+    // 1. CREATE ROOM
+    // =========================================================
 
-      const roomCode = generateBusRoomCode();
-      const username = (data?.username || 'Bharath').trim().slice(0, 20);
-      const device = data?.device || DEVICE_NAMES[Math.floor(Math.random() * DEVICE_NAMES.length)];
-      const seat = SEAT_NAMES[0];
+    socket.on(
+      'create-room',
+      (data: {
+        username?: string;
+        device?: string;
+      }) => {
+        if (socket.data.roomCode) {
+          handleLeave();
+        }
 
-      const newPassenger: Passenger = {
-        id: socket.id,
-        name: username,
-        role: 'HOST DJ',
-        device,
-        seat,
-        delay: '<12ms',
-        buffer: 100,
-      };
+        const roomCode = generateBusRoomCode();
 
-      const newRoom: Room = {
-        code: roomCode,
-        hostId: socket.id,
-        users: [newPassenger],
-        currentTrackIndex: 0,
-        isPlaying: false,
-        currentTime: 0,
-        lastSyncTimestamp: Date.now(),
-        queue: [
-          {
-            id: 'q1',
-            title: 'Nightcall (Drive Edit)',
-            artist: 'Kavinsky',
-            duration: '04:19',
-            addedBy: 'Arun',
-            votes: 4,
-            albumArt: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80',
-          },
-          {
-            id: 'q2',
-            title: 'Sunset Lover',
-            artist: 'Petit Biscuit',
-            duration: '03:57',
-            addedBy: 'You',
-            votes: 2,
-            albumArt: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=300&q=80',
-          },
-          {
-            id: 'q3',
-            title: 'Resonance',
-            artist: 'HOME',
-            duration: '03:32',
-            addedBy: 'Bharath',
-            votes: 1,
-            albumArt: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=300&q=80',
-          },
-        ],
-      };
+        const username = (data?.username || 'Bharath')
+          .trim()
+          .slice(0, 20);
 
-      rooms.set(roomCode, newRoom);
-      socket.join(roomCode);
-      socket.data.roomCode = roomCode;
-      socket.data.username = username;
+        const device =
+          data?.device ||
+          DEVICE_NAMES[
+            Math.floor(
+              Math.random() * DEVICE_NAMES.length
+            )
+          ];
 
-      socket.emit('room-created', {
-        roomCode,
-        room: newRoom,
-        users: newRoom.users,
-      });
+        const seat = SEAT_NAMES[0];
 
-      console.log(`[Socket.IO] Cabin created: ${roomCode} by ${username}`);
-    });
+        const newPassenger: Passenger = {
+          id: socket.id,
+          name: username,
+          role: 'HOST DJ',
+          device,
+          seat,
+          delay: '<12ms',
+          buffer: 100,
+        };
 
-    // 2. Join Room (Listener)
-    socket.on('join-room', (data: { roomCode?: string; username?: string; device?: string }) => {
-      const targetCode = (data?.roomCode || '').trim().toUpperCase();
-      const username = (data?.username || 'Passenger').trim().slice(0, 20);
+        const newRoom: Room = {
+          code: roomCode,
+          hostId: socket.id,
+          users: [newPassenger],
+          currentTrackIndex: 0,
+          isPlaying: false,
+          currentTime: 0,
+          lastSyncTimestamp: Date.now(),
 
-      if (!targetCode) {
-        socket.emit('room-error', { message: 'Please enter a valid room code (e.g. BUS-8921).' });
-        return;
+          queue: [
+            {
+              id: 'q1',
+              title: 'Nightcall (Drive Edit)',
+              artist: 'Kavinsky',
+              duration: '04:19',
+              addedBy: 'Arun',
+              votes: 4,
+              albumArt:
+                'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80',
+            },
+            {
+              id: 'q2',
+              title: 'Sunset Lover',
+              artist: 'Petit Biscuit',
+              duration: '03:57',
+              addedBy: 'You',
+              votes: 2,
+              albumArt:
+                'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=300&q=80',
+            },
+            {
+              id: 'q3',
+              title: 'Resonance',
+              artist: 'HOME',
+              duration: '03:32',
+              addedBy: 'Bharath',
+              votes: 1,
+              albumArt:
+                'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=300&q=80',
+            },
+          ],
+        };
+
+        rooms.set(roomCode, newRoom);
+
+        socket.join(roomCode);
+
+        socket.data.roomCode = roomCode;
+        socket.data.username = username;
+
+        socket.emit('room-created', {
+          roomCode,
+          room: newRoom,
+          users: newRoom.users,
+        });
+
+        console.log(
+          `[Socket.IO] Cabin created: ${roomCode} by ${username}`
+        );
       }
+    );
 
-      if (!rooms.has(targetCode)) {
-        socket.emit('room-error', { message: `Cabin "${targetCode}" not found. Check code.` });
-        return;
+    // =========================================================
+    // 2. JOIN ROOM
+    // =========================================================
+
+    socket.on(
+      'join-room',
+      (data: {
+        roomCode?: string;
+        username?: string;
+        device?: string;
+      }) => {
+        const targetCode = (data?.roomCode || '')
+          .trim()
+          .toUpperCase();
+
+        const username = (data?.username || 'Passenger')
+          .trim()
+          .slice(0, 20);
+
+        if (!targetCode) {
+          socket.emit('room-error', {
+            message:
+              'Please enter a valid room code (e.g. BUS-8921).',
+          });
+
+          return;
+        }
+
+        if (!rooms.has(targetCode)) {
+          socket.emit('room-error', {
+            message: `Cabin "${targetCode}" not found. Check code.`,
+          });
+
+          return;
+        }
+
+        const room = rooms.get(targetCode)!;
+
+        if (room.users.length >= 8) {
+          socket.emit('room-error', {
+            message:
+              'Bus cabin is at full capacity (8 passengers).',
+          });
+
+          return;
+        }
+
+        if (
+          socket.data.roomCode &&
+          socket.data.roomCode !== targetCode
+        ) {
+          handleLeave();
+        }
+
+        const seat =
+          SEAT_NAMES[
+            room.users.length % SEAT_NAMES.length
+          ];
+
+        const device =
+          data?.device ||
+          DEVICE_NAMES[
+            room.users.length % DEVICE_NAMES.length
+          ];
+
+        const newPassenger: Passenger = {
+          id: socket.id,
+          name: username,
+          role: 'Listener',
+          device,
+          seat,
+          delay: '+1.2ms',
+          buffer: 99,
+        };
+
+        room.users.push(newPassenger);
+
+        socket.join(targetCode);
+
+        socket.data.roomCode = targetCode;
+        socket.data.username = username;
+
+        socket.emit('room-joined', {
+          roomCode: targetCode,
+          room,
+          users: room.users,
+          currentTrackIndex: room.currentTrackIndex,
+          isPlaying: room.isPlaying,
+          currentTime: room.currentTime,
+          queue: room.queue,
+        });
+
+        io.to(targetCode).emit('room-users', {
+          roomCode: targetCode,
+          users: room.users,
+          hostId: room.hostId,
+        });
       }
+    );
 
-      const room = rooms.get(targetCode)!;
+    // =========================================================
+    // 3. PLAY SYNC
+    // =========================================================
 
-      if (room.users.length >= 8) {
-        socket.emit('room-error', { message: 'Bus cabin is at full capacity (8 passengers).' });
-        return;
+    socket.on(
+      'play',
+      (data: {
+        songIndex?: number;
+        currentTime?: number;
+      }) => {
+        const code = socket.data.roomCode;
+
+        if (!code || !rooms.has(code)) {
+          return;
+        }
+
+        const room = rooms.get(code)!;
+
+        room.isPlaying = true;
+
+        if (typeof data.songIndex === 'number') {
+          room.currentTrackIndex = data.songIndex;
+        }
+
+        if (typeof data.currentTime === 'number') {
+          room.currentTime = data.currentTime;
+        }
+
+        room.lastSyncTimestamp = Date.now();
+
+        socket.to(code).emit('play', {
+          songIndex: room.currentTrackIndex,
+          currentTime: room.currentTime,
+          username:
+            socket.data.username || 'Friend',
+        });
       }
+    );
 
-      if (socket.data.roomCode && socket.data.roomCode !== targetCode) {
-        handleLeave();
+    // =========================================================
+    // 4. PAUSE SYNC
+    // =========================================================
+
+    socket.on(
+      'pause',
+      (data: {
+        currentTime?: number;
+      }) => {
+        const code = socket.data.roomCode;
+
+        if (!code || !rooms.has(code)) {
+          return;
+        }
+
+        const room = rooms.get(code)!;
+
+        room.isPlaying = false;
+
+        if (typeof data.currentTime === 'number') {
+          room.currentTime = data.currentTime;
+        }
+
+        socket.to(code).emit('pause', {
+          currentTime: room.currentTime,
+          username:
+            socket.data.username || 'Friend',
+        });
       }
+    );
 
-      const seat = SEAT_NAMES[room.users.length % SEAT_NAMES.length];
-      const device = data?.device || DEVICE_NAMES[room.users.length % DEVICE_NAMES.length];
+    // =========================================================
+    // 5. SEEK SYNC
+    // =========================================================
 
-      const newPassenger: Passenger = {
-        id: socket.id,
-        name: username,
-        role: 'Listener',
-        device,
-        seat,
-        delay: '+1.2ms',
-        buffer: 99,
-      };
+    socket.on(
+      'seek',
+      (data: {
+        currentTime: number;
+      }) => {
+        const code = socket.data.roomCode;
 
-      room.users.push(newPassenger);
-      socket.join(targetCode);
-      socket.data.roomCode = targetCode;
-      socket.data.username = username;
+        if (!code || !rooms.has(code)) {
+          return;
+        }
 
-      // Reply to joining user with full room state
-      socket.emit('room-joined', {
-        roomCode: targetCode,
-        room,
-        users: room.users,
-        currentTrackIndex: room.currentTrackIndex,
-        isPlaying: room.isPlaying,
-        currentTime: room.currentTime,
-        queue: room.queue,
-      });
+        const room = rooms.get(code)!;
 
-      // Broadcast updated passenger list
-      io.to(targetCode).emit('room-users', {
-        roomCode: targetCode,
-        users: room.users,
-        hostId: room.hostId,
-      });
-    });
+        room.currentTime = data.currentTime;
 
-    // 3. Play Sync
-    socket.on('play', (data: { songIndex?: number; currentTime?: number }) => {
-      const code = socket.data.roomCode;
-      if (!code || !rooms.has(code)) return;
-
-      const room = rooms.get(code)!;
-      room.isPlaying = true;
-      if (typeof data.songIndex === 'number') room.currentTrackIndex = data.songIndex;
-      if (typeof data.currentTime === 'number') room.currentTime = data.currentTime;
-      room.lastSyncTimestamp = Date.now();
-
-      socket.to(code).emit('play', {
-        songIndex: room.currentTrackIndex,
-        currentTime: room.currentTime,
-        username: socket.data.username || 'Friend',
-      });
-    });
-
-    // 4. Pause Sync
-    socket.on('pause', (data: { currentTime?: number }) => {
-      const code = socket.data.roomCode;
-      if (!code || !rooms.has(code)) return;
-
-      const room = rooms.get(code)!;
-      room.isPlaying = false;
-      if (typeof data.currentTime === 'number') room.currentTime = data.currentTime;
-
-      socket.to(code).emit('pause', {
-        currentTime: room.currentTime,
-        username: socket.data.username || 'Friend',
-      });
-    });
-
-    // 5. Seek Sync
-    socket.on('seek', (data: { currentTime: number }) => {
-      const code = socket.data.roomCode;
-      if (!code || !rooms.has(code)) return;
-
-      const room = rooms.get(code)!;
-      room.currentTime = data.currentTime;
-
-      socket.to(code).emit('seek', {
-        currentTime: data.currentTime,
-        username: socket.data.username || 'Friend',
-      });
-    });
-
-    // 6. Queue Upvote
-    socket.on('upvote-song', (data: { songId: string }) => {
-      const code = socket.data.roomCode;
-      if (!code || !rooms.has(code)) return;
-
-      const room = rooms.get(code)!;
-      const item = room.queue.find((q) => q.id === data.songId);
-      if (item) {
-        item.votes += 1;
-        // Sort queue by highest votes
-        room.queue.sort((a, b) => b.votes - a.votes);
-        io.to(code).emit('queue-updated', { queue: room.queue });
+        socket.to(code).emit('seek', {
+          currentTime: data.currentTime,
+          username:
+            socket.data.username || 'Friend',
+        });
       }
-    });
+    );
 
-    // 7. Live Emoji Reactions Broadcast
-    socket.on('send-reaction', (data: { emoji: string }) => {
-      const code = socket.data.roomCode;
-      if (!code) return;
+    // =========================================================
+    // 6. QUEUE UPVOTE
+    // =========================================================
 
-      io.to(code).emit('reaction-received', {
-        id: Math.random().toString(36).substring(2, 9),
-        emoji: data.emoji,
-        sender: socket.data.username || 'Rider',
-        timestamp: Date.now(),
-      });
-    });
+    socket.on(
+      'upvote-song',
+      (data: {
+        songId: string;
+      }) => {
+        const code = socket.data.roomCode;
 
-    // 8. Low-Latency Sync Ping-Pong
-    socket.on('sync-ping', (data: { clientTime: number }) => {
-      socket.emit('sync-pong', {
-        clientTime: data.clientTime,
-        serverTime: Date.now(),
-      });
-    });
+        if (!code || !rooms.has(code)) {
+          return;
+        }
 
-    // 9. Leave & Disconnect
+        const room = rooms.get(code)!;
+
+        const item = room.queue.find(
+          (q) => q.id === data.songId
+        );
+
+        if (item) {
+          item.votes += 1;
+
+          room.queue.sort(
+            (a, b) => b.votes - a.votes
+          );
+
+          io.to(code).emit('queue-updated', {
+            queue: room.queue,
+          });
+        }
+      }
+    );
+
+    // =========================================================
+    // 7. LIVE EMOJI REACTIONS
+    // =========================================================
+
+    socket.on(
+      'send-reaction',
+      (data: {
+        emoji: string;
+      }) => {
+        const code = socket.data.roomCode;
+
+        if (!code) {
+          return;
+        }
+
+        io.to(code).emit('reaction-received', {
+          id: Math.random()
+            .toString(36)
+            .substring(2, 9),
+
+          emoji: data.emoji,
+
+          sender:
+            socket.data.username || 'Rider',
+
+          timestamp: Date.now(),
+        });
+      }
+    );
+
+    // =========================================================
+    // 8. SYNC PING / PONG
+    // =========================================================
+
+    socket.on(
+      'sync-ping',
+      (data: {
+        clientTime: number;
+      }) => {
+        socket.emit('sync-pong', {
+          clientTime: data.clientTime,
+          serverTime: Date.now(),
+        });
+      }
+    );
+
+    // =========================================================
+    // 9. LEAVE ROOM
+    // =========================================================
+
     socket.on('leave-room', () => {
       handleLeave();
-      socket.emit('room-users', { roomCode: null, users: [] });
+
+      socket.emit('room-users', {
+        roomCode: null,
+        users: [],
+      });
     });
 
+    // =========================================================
+    // 10. DISCONNECT
+    // =========================================================
+
     socket.on('disconnect', () => {
+      console.log(
+        `[Socket.IO] Disconnected: ${socket.id}`
+      );
+
       handleLeave();
     });
   });
 
-  // Vite development middleware
-  if (process.env.NODE_ENV !== 'production') {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
-  }
+  // =========================================================
+  // START SERVER
+  // =========================================================
 
   server.listen(PORT, '0.0.0.0', () => {
-    console.log(`BusBuds server running on http://localhost:${PORT}`);
+    console.log(
+      `PixelBeats server running on port ${PORT}`
+    );
   });
 }
 
