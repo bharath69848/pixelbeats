@@ -1,9 +1,11 @@
 import { io } from 'socket.io-client';
 
-// Single application-level socket connection
-const socket = io(typeof window !== 'undefined' ? window.location.origin : undefined, {
-  autoConnect: true,
-  transports: ['polling', 'websocket'],
+const socket = io(import.meta.env.VITE_SOCKET_URL, {
+  transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
 });
 
 export default socket;
