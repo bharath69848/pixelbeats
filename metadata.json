@@ -1,0 +1,6 @@
+{
+  "name": "BusBuds Music Player",
+  "description": "Multiplayer transit music player and listening room for shared bus rides with real-time playback synchronization and live reactions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
