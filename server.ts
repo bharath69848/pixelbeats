@@ -52,9 +52,8 @@ const SEAT_NAMES = [
   'Upper deck 15',
 ];
 
-function generateBusRoomCode(): string {
-  const num = Math.floor(1000 + Math.random() * 9000);
-  return `BUS-${num}`;
+function generateRoomCode() {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
 async function startServer() {
@@ -156,9 +155,9 @@ async function startServer() {
           handleLeave();
         }
 
-        const roomCode = generateBusRoomCode();
+        const roomCode = generateRoomCode();
 
-        const username = (data?.username || 'Bharath')
+        const username = (data?.username || '')
           .trim()
           .slice(0, 20);
 
